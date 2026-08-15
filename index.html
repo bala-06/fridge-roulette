@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fridge Roulette — what do I cook with this?</title>
+<meta name="description" content="Tell it what is left in your fridge and it invents a dish you can actually make right now. Built on AWS Lambda and Amazon Bedrock.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍳</text></svg>">
+<style>
+  :root{
+    --bg:#faf7f5; --surface:#fff; --border:#e9e1db; --text:#241f1c; --muted:#7a6e66;
+    --accent:#8b5cf6; --accent-2:#ec4899; --ring:rgba(139,92,246,.28);
+    --shadow:0 1px 2px rgba(36,31,28,.05),0 12px 32px -12px rgba(36,31,28,.14);
+    --radius:16px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#17141a; --surface:#211d26; --border:#332c3b; --text:#f2edf5; --muted:#a99fb3;
+      --accent:#a78bfa; --accent-2:#f472b6; --ring:rgba(167,139,250,.32);
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -12px rgba(0,0,0,.6);
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:16px/1.6 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:760px; margin:0 auto; padding:48px 20px 80px}
+  header{text-align:center; margin-bottom:40px}
+  h1{
+    font:700 clamp(2.1rem,6vw,3rem)/1.1 Georgia,"Playfair Display",serif;
+    margin:0 0 12px; letter-spacing:-.02em;
+  }
+  h1 em{
+    font-style:normal;
+    background:linear-gradient(100deg,var(--accent),var(--accent-2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .tag{color:var(--muted); margin:0; font-size:1.05rem}
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:24px; box-shadow:var(--shadow);
+  }
+  label{display:block; font-weight:600; font-size:.9rem; margin-bottom:8px}
+  textarea{
+    width:100%; min-height:92px; resize:vertical; padding:14px 16px;
+    border:1px solid var(--border); border-radius:12px; background:var(--bg);
+    color:var(--text); font:inherit; transition:border-color .15s,box-shadow .15s;
+  }
+  textarea:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 4px var(--ring)}
+  .hint{color:var(--muted); font-size:.82rem; margin:6px 0 0}
+  .presets{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px}
+  .presets .lead{color:var(--muted); font-size:.82rem; margin-right:2px}
+  .preset{
+    padding:7px 13px; border-radius:999px; cursor:pointer; font-size:.83rem;
+    border:1px dashed var(--border); background:transparent; color:var(--muted);
+    font-family:inherit; transition:all .15s; text-align:left;
+  }
+  .preset:hover{border-style:solid; border-color:var(--accent); color:var(--text)}
+  .shuffle{
+    width:30px; height:30px; flex:none; border-radius:50%; cursor:pointer;
+    border:1px dashed var(--border); background:transparent; color:var(--muted);
+    font-size:.95rem; line-height:1; transition:all .15s;
+  }
+  .shuffle:hover{border-style:solid; border-color:var(--accent); color:var(--accent); transform:rotate(90deg)}
+  .controls{display:flex; flex-wrap:wrap; gap:20px; margin:22px 0}
+  .group{flex:1; min-width:190px}
+  .chips{display:flex; gap:8px; flex-wrap:wrap}
+  .chip{
+    flex:1; min-width:56px; text-align:center; padding:9px 12px; cursor:pointer;
+    border:1px solid var(--border); border-radius:10px; background:var(--bg);
+    font-size:.88rem; font-weight:500; transition:all .15s; user-select:none;
+  }
+  .chip:hover{border-color:var(--accent)}
+  .chip.on{
+    background:linear-gradient(100deg,var(--accent),var(--accent-2));
+    border-color:transparent; color:#fff;
+  }
+  .toggle{display:flex; align-items:center; gap:10px; cursor:pointer; font-size:.9rem}
+  .toggle input{width:17px; height:17px; accent-color:var(--accent); cursor:pointer}
+  button.go{
+    width:100%; padding:15px; border:0; border-radius:12px; cursor:pointer;
+    background:linear-gradient(100deg,var(--accent),var(--accent-2)); color:#fff;
+    font:600 1.02rem Inter,system-ui,sans-serif; transition:opacity .15s,transform .1s;
+  }
+  button.go:hover:not(:disabled){opacity:.92}
+  button.go:active:not(:disabled){transform:translateY(1px)}
+  button.go:disabled{opacity:.55; cursor:not-allowed}
+  #out{margin-top:24px}
+  #out:empty{display:none}
+  .dish{
+    font:700 1.75rem/1.2 Georgia,"Playfair Display",serif; margin:0 0 10px;
+    letter-spacing:-.01em;
+  }
+  .meta{display:flex; gap:16px; flex-wrap:wrap; color:var(--muted); font-size:.88rem; margin-bottom:20px}
+  ol{margin:0; padding-left:22px}
+  ol li{margin-bottom:10px; padding-left:4px}
+  ol li::marker{color:var(--accent); font-weight:700}
+  .note{
+    margin:20px 0 0; padding:14px 16px; background:var(--bg);
+    border-left:3px solid var(--accent); border-radius:0 10px 10px 0;
+    font-style:italic; color:var(--muted); font-size:.93rem;
+  }
+  .aside{margin-top:20px; padding-top:18px; border-top:1px solid var(--border); font-size:.88rem}
+  .aside strong{display:block; margin-bottom:6px; font-size:.8rem; text-transform:uppercase;
+    letter-spacing:.05em; color:var(--muted)}
+  .aside ul{margin:0; padding-left:20px; color:var(--muted)}
+  .err{border-color:#ef4444}
+  .err .dish{color:#ef4444; font-size:1.15rem}
+  .spin{
+    display:inline-block; width:15px; height:15px; vertical-align:-2px; margin-right:9px;
+    border:2px solid rgba(255,255,255,.35); border-top-color:#fff;
+    border-radius:50%; animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .guide{margin-top:56px}
+  .guide h2{font:700 1.4rem/1.2 Georgia,"Playfair Display",serif; margin:0 0 6px}
+  .guide > p{color:var(--muted); margin:0 0 20px; font-size:.94rem}
+  .steps{display:grid; gap:14px}
+  .step{display:flex; gap:14px; align-items:flex-start}
+  .num{
+    flex:none; width:26px; height:26px; border-radius:50%; display:grid; place-items:center;
+    background:linear-gradient(100deg,var(--accent),var(--accent-2)); color:#fff;
+    font-size:.8rem; font-weight:700;
+  }
+  .step p{margin:0; font-size:.93rem}
+  .step p b{display:block; margin-bottom:2px}
+  .step p span{color:var(--muted)}
+  .arch{
+    margin-top:24px; padding-top:20px; border-top:1px solid var(--border);
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px;
+  }
+  .svc{background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px 14px}
+  .svc b{display:block; font-size:.86rem; margin-bottom:2px}
+  .svc span{color:var(--muted); font-size:.79rem}
+  footer{margin-top:44px; text-align:center; color:var(--muted); font-size:.83rem}
+  footer a{color:var(--accent); text-decoration:none}
+  footer a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Fridge <em>Roulette</em></h1>
+    <p class="tag">Tell it what is left over. It invents dinner.</p>
+  </header>
+
+  <div class="card">
+    <label for="ing">What is in your fridge?</label>
+    <textarea id="ing" placeholder="2 eggs, half an onion, leftover rice, curry leaves…" maxlength="500"></textarea>
+    <p class="hint">Salt, pepper, oil and common spices are assumed — just list the real things.</p>
+
+    <div class="presets" id="presets">
+      <span class="lead">No fridge handy? Try:</span>
+      <button class="shuffle" id="shuffle" title="Show different examples" aria-label="Show different examples">↻</button>
+    </div>
+
+    <div class="controls">
+      <div class="group">
+        <label>Time you have</label>
+        <div class="chips" id="time">
+          <div class="chip" data-v="10">10 min</div>
+          <div class="chip on" data-v="20">20 min</div>
+          <div class="chip" data-v="40">40 min</div>
+        </div>
+      </div>
+      <div class="group">
+        <label>Diet</label>
+        <div class="chips" id="diet">
+          <div class="chip on" data-v="any">Anything</div>
+          <div class="chip" data-v="veg">Veg</div>
+          <div class="chip" data-v="nonveg">Non-veg</div>
+        </div>
+      </div>
+    </div>
+
+    <label class="toggle">
+      <input type="checkbox" id="useup">
+      <span>Use-it-up mode — favour whatever spoils first</span>
+    </label>
+
+    <p style="margin:18px 0 0"><button class="go" id="go">Cook something</button></p>
+  </div>
+
+  <div id="out"></div>
+
+  <section class="guide">
+    <h2>How to use it</h2>
+    <p>Three inputs, one dish. It takes about two seconds.</p>
+    <div class="steps">
+      <div class="step"><div class="num">1</div><p><b>List what you actually have</b>
+        <span>Plain words are fine — "half a cabbage, some paneer, two tomatoes". Rough quantities help but are not required. In a hurry? Click one of the example fridges instead, or hit ↻ for different ones.</span></p></div>
+      <div class="step"><div class="num">2</div><p><b>Set your time and diet</b>
+        <span>The time budget genuinely changes the recipe, not just the label. Ten minutes gets you assembly; forty gets you something simmered.</span></p></div>
+      <div class="step"><div class="num">3</div><p><b>Cook something</b>
+        <span>You get a named dish, four to six steps, and — if it needs anything you did not list — an honest "missing" list plus substitutions.</span></p></div>
+    </div>
+
+    <div class="arch">
+      <div class="svc"><b>Amazon Bedrock</b><span>Nova Lite invents the dish</span></div>
+      <div class="svc"><b>AWS Lambda</b><span>Prompt, parse, validate</span></div>
+      <div class="svc"><b>API Gateway</b><span>HTTP API + CORS</span></div>
+      <div class="svc"><b>Amazon S3</b><span>Static site hosting</span></div>
+    </div>
+  </section>
+
+  <footer>Built for the AWS Weekend Creative Challenge · Nova Lite on Bedrock</footer>
+</div>
+
+<script>
+const API = "https://l3fhzgj2di.execute-api.ap-south-1.amazonaws.com";
+
+const $ = s => document.querySelector(s);
+const ing = $("#ing"), go = $("#go"), out = $("#out");
+
+// One-click examples so nobody has to type to try it.
+const PRESETS = [
+  "half a cabbage, some paneer, two tomatoes",
+  "2 eggs, half an onion, leftover rice, curry leaves",
+  "chickpeas, a lemon, red onion, coriander",
+  "leftover chapati, one potato, green chillies",
+  "bread, tomato, cheese, basil",
+  "paneer, capsicum, onion, garam masala",
+  "moong dal, one carrot, cumin seeds",
+  "mushrooms, butter, garlic, a little cream",
+  "instant noodles, an egg, spring onion",
+  "sweet potato, spinach, garlic, chilli flakes",
+  "leftover dal, rice, one tomato",
+  "tofu, soy sauce, broccoli, sesame seeds",
+  "chicken, yoghurt, ginger garlic paste",
+  "banana, oats, milk, honey"
+];
+
+const presetBar = $("#presets"), shuffleBtn = $("#shuffle");
+
+function showPresets() {
+  presetBar.querySelectorAll(".preset").forEach(b => b.remove());
+  const pool = [...PRESETS].sort(() => Math.random() - 0.5).slice(0, 3);
+  pool.forEach(text => {
+    const b = document.createElement("button");
+    b.className = "preset";
+    b.type = "button";
+    b.textContent = text;
+    b.addEventListener("click", () => { ing.value = text; cook(); });
+    presetBar.insertBefore(b, shuffleBtn);
+  });
+  // start with something already in the box, so "Cook something" works immediately
+  if (!ing.value.trim()) ing.value = pool[0];
+}
+
+shuffleBtn.addEventListener("click", showPresets);
+
+// chip groups behave like radio buttons
+document.querySelectorAll(".chips").forEach(group => {
+  group.addEventListener("click", e => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    group.querySelectorAll(".chip").forEach(c => c.classList.remove("on"));
+    chip.classList.add("on");
+  });
+});
+
+const pick = id => $("#" + id + " .chip.on").dataset.v;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function fail(msg) {
+  out.innerHTML = `<div class="card err"><p class="dish">${esc(msg)}</p></div>`;
+}
+
+function render(r) {
+  const list = (title, items) => items && items.length
+    ? `<div class="aside"><strong>${title}</strong><ul>${items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></div>`
+    : "";
+  out.innerHTML = `
+    <div class="card">
+      <h2 class="dish">${esc(r.name)}</h2>
+      <div class="meta"><span>⏱ ${esc(r.time_mins)} min</span><span>🍽 serves ${esc(r.serves)}</span></div>
+      <ol>${r.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ol>
+      ${r.note ? `<p class="note">${esc(r.note)}</p>` : ""}
+      ${list("You will also need", r.missing)}
+      ${list("Swaps", r.substitutions)}
+    </div>`;
+}
+
+async function cook() {
+  const text = ing.value.trim();
+  if (!text) { ing.focus(); return fail("Tell me what is in your fridge first."); }
+
+  go.disabled = true;
+  go.innerHTML = '<span class="spin"></span>Thinking…';
+  out.innerHTML = "";
+
+  try {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ingredients: text,
+        time_budget: Number(pick("time")),
+        diet: pick("diet"),
+        use_it_up: $("#useup").checked
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) return fail(data.error || "Something went wrong. Try again.");
+    render(data);
+    out.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e) {
+    fail("Could not reach the kitchen. Check your connection and try again.");
+  } finally {
+    go.disabled = false;
+    go.textContent = "Cook something";
+  }
+}
+
+go.addEventListener("click", cook);
+ing.addEventListener("keydown", e => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) cook();
+});
+
+showPresets();
+</script>
+</body>
+</html>
