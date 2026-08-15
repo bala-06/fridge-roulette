@@ -137,7 +137,3 @@ back to a default rather than reaching the model.
 | Lambda | 10 concurrent executions (account default) |
 
 Bedrock throttling surfaces as a friendly *"The kitchen is busy"* message rather than an error page.
-
-## Licence
-
-MIT
