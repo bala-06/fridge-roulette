@@ -117,9 +117,9 @@
   .err{border-color:#ef4444}
   .err .dish{color:#ef4444; font-size:1.15rem}
   /* Not an error: the kitchen worked, there was just no honest dish to give back. */
-  .hint{border-color:#f59e0b}
-  .hint .dish{color:#b45309; font-size:1.15rem}
-  .hint p.why{margin:10px 0 0; color:var(--muted); font-size:.93rem}
+  .nodish{border-color:#f59e0b}
+  .nodish .dish{color:#b45309; font-size:1.15rem}
+  .nodish p.why{margin:10px 0 0; color:var(--muted); font-size:.93rem}
   .spin{
     display:inline-block; width:15px; height:15px; vertical-align:-2px; margin-right:9px;
     border:2px solid rgba(255,255,255,.35); border-top-color:#fff;
@@ -285,7 +285,7 @@ function fail(msg) {
 // retrying will not change the answer, so do not dress it up as an error.
 function noRecipe(reason) {
   out.innerHTML = `
-    <div class="card hint">
+    <div class="card nodish">
       <p class="dish">Nothing I can cook with this</p>
       <p class="why">${esc(reason || "Add an ingredient or two and I will try again.")}</p>
     </div>`;
